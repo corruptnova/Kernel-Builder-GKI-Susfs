@@ -11,6 +11,13 @@ COMBINED_FRAG="$(pwd)/tools/custom_combined.fragment"
 
 echo "=== Configuring Kconfigs & ABI Neutralization for Kernel $BASE_VER ==="
 
+# 0. GUARD: built-in NoMount and user-supplied Prism engine both define CONFIG_NOMOUNT
+if [ "$ENABLE_NOMOUNT" = "true" ] && [ -f "tools/user_source/fs/nomount.c" ]; then
+    echo "[-] ERROR: Prism NoMount engine found in tools/user_source/fs/ but the built-in NoMount toggle is enabled."
+    echo "    Untick 'Inject nomount VFS module'; the Prism engine is enabled via tools/custom.fragment."
+    exit 1
+fi
+
 cd kernel_workspace
 
 # 1. NEUTRALIZE LEGACY ABI PROTECTED EXPORTS (modpost bypass for 5.10-6.6)
@@ -53,6 +60,12 @@ cd common
     if [ "$ENABLE_NET_OPTS" = "true" ] && [ -f "../../tools/net_opts.fragment" ]; then
         echo ">>> Appending Network Optimization Kconfigs..."
         cat "../../tools/net_opts.fragment" >> "$COMBINED_FRAG"
+        echo "" >> "$COMBINED_FRAG"
+    fi
+
+    if [ -f "../../tools/custom.fragment" ] && grep -q '^CONFIG_' "../../tools/custom.fragment"; then
+        echo ">>> Appending User Kconfigs from custom.fragment..."
+        cat "../../tools/custom.fragment" >> "$COMBINED_FRAG"
         echo "" >> "$COMBINED_FRAG"
     fi
     

@@ -312,7 +312,7 @@ jobs:
           ./scripts/configure_kconfigs.sh
 
       - name: Inject User Source Files
-        if: inputs.enable_nomount == true || inputs.enable_net_opts == true
+        if: inputs.enable_nomount == true || inputs.enable_net_opts == true || hashFiles('tools/custom.fragment') != ''
         env:
           ENABLE_NOMOUNT: ${{ inputs.enable_nomount }}
         run: |
@@ -345,7 +345,9 @@ jobs:
         shell: bash
 
       - name: Apply User Patches
-        if: inputs.enable_nomount == true || inputs.enable_net_opts == true
+        if: inputs.enable_nomount == true || inputs.enable_net_opts == true || hashFiles('tools/custom.fragment') != ''
+        env:
+          ENABLE_NET_OPTS: ${{ inputs.enable_net_opts }}
         run: |
           PATCH_DIR="$(pwd)/tools/user_patches"
           
@@ -361,7 +363,13 @@ jobs:
 
               for patch_file in "${patches[@]}"; do
                 filename=$(basename "$patch_file")
-                
+
+                # Network patches pair with net_opts.fragment; only apply them when that toggle is on
+                if [[ "$filename" == *network-optimizations* ]] && [ "$ENABLE_NET_OPTS" != "true" ]; then
+                  echo "  -> [SKIP] $filename (network optimizations disabled)"
+                  continue
+                fi
+
                 # Condition 1: Exact BASE_VER match (e.g., 6.1-0001-fix.patch)
                 if [[ "$filename" == "${BASE_VER}-"* ]]; then
                   echo "  -> [MATCH] Applying version-specific patch: $filename..."
@@ -434,6 +442,9 @@ jobs:
         run: |
           mkdir -p out/final
           echo -e "MANIFEST_URL=${MANIFEST_URL}\nMANIFEST_BRANCH=${MANIFEST_BRANCH}\nOTA_URL=${OTA_URL}\nTIMESTAMP=$(date -u '+%Y-%m-%d %H:%M:%S UTC')" > out/final/repack_metadata.txt
+          if [ -f tools/prism_engine.lock ] && [ -f tools/user_source/fs/nomount.c ]; then
+            grep -v '^#' tools/prism_engine.lock | sed 's/^/PRISM_/' >> out/final/repack_metadata.txt
+          fi
 
           # Sanitize inputs.build_name: replace spaces and slashes with underscores
           SAFE_BUILD_NAME=$(echo "${{ inputs.build_name }}" | tr ' /' '__')

@@ -1,0 +1,9 @@
+# Prism NoMount engine vendored into tools/user_source/fs/ and tools/user_patches/
+# Flash with the NoMount-Suite release whose CHANGELOG lists the same engine version.
+SOURCE_REPO=https://github.com/Bouteillepleine/NoMount-Suite
+HOOKLESS_COMMIT=f93a8f9978b6f7681d52a967e974c1b6bfd6d066
+HOOKLESS_COMMIT_DATE=2026-10-01
+HOOKLESS_COMMIT_SUBJECT=engine 1.34.5
+NOMOUNT_VERSION=34
+NM_MODULE_VERSION=1.34.5
+SUITE_RELEASE_AT_VENDOR_TIME=v1.3.192
