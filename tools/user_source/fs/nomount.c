@@ -28,14 +28,32 @@
 #define NM_SDKSANDBOX_OFF   10000
 
 #define NM_GHOST_RULE_MAX 200
-extern int ghost_ctl(const char *buf, size_t count) __attribute__((weak));
-extern int ghost_get_rule(int idx, char *out, size_t outsz) __attribute__((weak));
+/*
+ * ghost/pathhide live in a separate Prism translation unit that is not always
+ * vendored into the tree. A weak *declaration* (extern __weak with no body)
+ * leaves the symbol UND, and on a relocatable arm64 vmlinux the compiler must
+ * route a possibly-NULL weak symbol through the GOT so it can resolve to 0 at
+ * runtime. Those GOT entries trip the arch/arm64/kernel/vmlinux.lds.S ASSERT
+ * ("Unexpected GOT/PLT entries detected!") and fail the link.
+ *
+ * Provide weak *definitions* instead: a strong ghost_*/pathhide_* from the
+ * Prism TU overrides these, and when Prism is absent the defined stub is used.
+ * The symbol is therefore always DEFINED (direct branch, no GOT entry). The
+ * stubs return each call site's existing "feature absent" value, so the
+ * if (!ptr) guards below are preserved and behaviour is unchanged.
+ */
+int ghost_ctl(const char *buf, size_t count) __attribute__((weak));
+int ghost_ctl(const char *buf, size_t count) { return -EINVAL; }
+int ghost_get_rule(int idx, char *out, size_t outsz) __attribute__((weak));
+int ghost_get_rule(int idx, char *out, size_t outsz) { return 0; }
 
 /* pathhide_get_rule() refuses an outsz under PH_RULE_LEN, so 128 is a floor,
  * not a preference. */
 #define NM_PATHHIDE_RULE_MAX 128
-extern int pathhide_ctl(const char *buf, size_t count) __attribute__((weak));
-extern int pathhide_get_rule(int idx, char *out, size_t outsz) __attribute__((weak));
+int pathhide_ctl(const char *buf, size_t count) __attribute__((weak));
+int pathhide_ctl(const char *buf, size_t count) { return -EINVAL; }
+int pathhide_get_rule(int idx, char *out, size_t outsz) __attribute__((weak));
+int pathhide_get_rule(int idx, char *out, size_t outsz) { return 0; }
 
 static atomic_t nm_rule_gen = ATOMIC_INIT(0);
 static struct kmem_cache *nm_dir_cachep __read_mostly, *nm_inode_cachep __read_mostly;
