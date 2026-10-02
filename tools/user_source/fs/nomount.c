@@ -29,18 +29,19 @@
 
 #define NM_GHOST_RULE_MAX 200
 /*
- * ghost/pathhide live in a separate Prism translation unit that is not always
- * vendored into the tree. A weak *declaration* (extern __weak with no body)
- * leaves the symbol UND, and on a relocatable arm64 vmlinux the compiler must
- * route a possibly-NULL weak symbol through the GOT so it can resolve to 0 at
- * runtime. Those GOT entries trip the arch/arm64/kernel/vmlinux.lds.S ASSERT
- * ("Unexpected GOT/PLT entries detected!") and fail the link.
+ * ghost and pathhide live in a separate Prism translation unit that is not
+ * always vendored into the tree. A weak declaration (extern __weak with no
+ * body) leaves the symbol undefined, and on a relocatable arm64 vmlinux the
+ * compiler must route a possibly-NULL weak symbol through the GOT so it can
+ * resolve to 0 at runtime. Those GOT entries trip the
+ * arch/arm64/kernel/vmlinux.lds.S ASSERT ("Unexpected GOT/PLT entries
+ * detected!") and fail the link.
  *
- * Provide weak *definitions* instead: a strong ghost_*/pathhide_* from the
- * Prism TU overrides these, and when Prism is absent the defined stub is used.
- * The symbol is therefore always DEFINED (direct branch, no GOT entry). The
- * stubs return each call site's existing "feature absent" value, so the
- * if (!ptr) guards below are preserved and behaviour is unchanged.
+ * Provide weak definitions instead. A strong ghost or pathhide symbol from the
+ * Prism TU still overrides these, and when Prism is absent the defined stub is
+ * used, so the symbol is always defined (direct branch, no GOT entry). Each
+ * stub returns its call site's existing "feature absent" value, so the callers
+ * below drop their old pointer-presence checks and lean on the return value.
  */
 int ghost_ctl(const char *buf, size_t count) __attribute__((weak));
 int ghost_ctl(const char *buf, size_t count) { return -EINVAL; }
@@ -5135,9 +5136,8 @@ static int nomount_nl_dump_ghost(struct sk_buff *skb, struct netlink_callback *c
     int idx = cb->args[0];
     void *hdr;
 
-    if (!ghost_get_rule)
-        return 0;
-
+    /* ghost_get_rule() returns 0 when the feature is absent (stub), so the
+     * loop simply yields an empty dump. */
     while (ghost_get_rule(idx, rule, sizeof(rule)) > 0) {
         rule[sizeof(rule) - 1] = '\0';
         hdr = nlmsg_put(skb, NETLINK_CB(cb->skb).portid, cb->nlh->nlmsg_seq,
@@ -5160,9 +5160,8 @@ static int nomount_nl_dump_pathhide(struct sk_buff *skb, struct netlink_callback
     int idx = cb->args[0];
     void *hdr;
 
-    if (!pathhide_get_rule)
-        return 0;
-
+    /* pathhide_get_rule() returns 0 when the feature is absent (stub), so the
+     * loop simply yields an empty dump. */
     while (pathhide_get_rule(idx, rule, sizeof(rule)) > 0) {
         rule[sizeof(rule) - 1] = '\0';
         hdr = nlmsg_put(skb, NETLINK_CB(cb->skb).portid, cb->nlh->nlmsg_seq,
@@ -5298,16 +5297,14 @@ static int nomount_nl_set_knob(struct nlattr **attrs)
         return 0;
     }
     case NM_KNOB_GHOST:
-        if (!ghost_ctl)
-            return -EINVAL;
         if (vlen == 0)
             return 0;
+        /* ghost_ctl() returns -EINVAL when the feature is absent (stub). */
         return ghost_ctl(val, vlen);
     case NM_KNOB_PATHHIDE:
-        if (!pathhide_ctl)
-            return -EINVAL;
         if (vlen == 0)
             return 0;
+        /* pathhide_ctl() returns -EINVAL when the feature is absent (stub). */
         return pathhide_ctl(val, vlen);
     default:
         return -EINVAL;
