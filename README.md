@@ -46,7 +46,7 @@ PRISM-NoMount-Suite lives in its own branch, **`prism-nomount`**. That branch is
 ### Installing
 1. Flash the kernel (AK3 zip or `boot.img`).
 2. Install the matching Manager APK from the artifacts and reboot.
-3. Download the **NoMount-Suite** module from [(https://github.com/Bouteillepleine/NoMount-Suite)] and install it through the manager. It is **not** included in the build artifacts.
+3. Download the **NoMount-Suite** module from (https://github.com/Bouteillepleine/NoMount-Suite) and install it through the manager. It is **not** included in the build artifacts.
 4. Reboot.
 
 > ⚠️ **Note:** Only one metamodule can be installed at a time on KernelSU-based managers, including ReSukiSU. Remove any existing metamodule (e.g., meta-overlayfs) before installing NoMount-Suite.
