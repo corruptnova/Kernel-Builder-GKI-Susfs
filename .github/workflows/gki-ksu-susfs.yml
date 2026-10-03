@@ -38,12 +38,6 @@ on:
         type: boolean
         default: true
         
-      enable_nomount:
-        description: "Inject nomount VFS module"
-        required: false
-        type: boolean
-        default: false
-        
       enable_net_opts:
         description: "Inject Network Optimizations (BBR, CAKE, FastOpen, ECN)"
         required: false
@@ -305,30 +299,14 @@ jobs:
 
       - name: Configure Kconfigs and Fragments
         env:
-          ENABLE_NOMOUNT: ${{ inputs.enable_nomount }}
           ENABLE_NET_OPTS: ${{ inputs.enable_net_opts }}
         run: |
           chmod +x scripts/configure_kconfigs.sh
           ./scripts/configure_kconfigs.sh
 
       - name: Inject User Source Files
-        if: inputs.enable_nomount == true || inputs.enable_net_opts == true || hashFiles('tools/custom.fragment') != ''
-        env:
-          ENABLE_NOMOUNT: ${{ inputs.enable_nomount }}
+        if: inputs.enable_net_opts == true || hashFiles('tools/custom.fragment') != ''
         run: |
-          if [ "$ENABLE_NOMOUNT" = "true" ]; then
-            echo ">>> Fetching pinned nomount source..."
-            NOMOUNT_DIR="$(pwd)/tools/user_source/fs/nomount"
-            NOMOUNT_COMMIT="6b1be186322d4e0bdc465cf27f6fc0d3679087c6"
-            
-            # Export to GITHUB_ENV so the Artifact fetcher can use it later
-            echo "NOMOUNT_COMMIT=${NOMOUNT_COMMIT}" >> $GITHUB_ENV
-            
-            # Force overwrite the existing .c and .h files with the pinned working versions
-            curl -sSL "https://raw.githubusercontent.com/maxsteeel/nomount/${NOMOUNT_COMMIT}/kernel/src/nomount.c" -o "$NOMOUNT_DIR/nomount.c"
-            curl -sSL "https://raw.githubusercontent.com/maxsteeel/nomount/${NOMOUNT_COMMIT}/kernel/src/nomount.h" -o "$NOMOUNT_DIR/nomount.h"
-          fi
-
           echo ">>> Injecting user source files into common tree..."
           shopt -s dotglob nullglob
           
@@ -345,7 +323,7 @@ jobs:
         shell: bash
 
       - name: Apply User Patches
-        if: inputs.enable_nomount == true || inputs.enable_net_opts == true || hashFiles('tools/custom.fragment') != ''
+        if: inputs.enable_net_opts == true || hashFiles('tools/custom.fragment') != ''
         env:
           ENABLE_NET_OPTS: ${{ inputs.enable_net_opts }}
         run: |
@@ -395,7 +373,6 @@ jobs:
 
       - name: Build common kernel Image
         env:
-          ENABLE_NOMOUNT: ${{ inputs.enable_nomount }}
           ENABLE_NET_OPTS: ${{ inputs.enable_net_opts }}
           ROOT_MANAGER: ${{ inputs.root_manager }}
         run: |
@@ -500,56 +477,6 @@ jobs:
           path: out/final/
           if-no-files-found: error
           
-      - name: Fetch NoMount KernelSU Module
-        if: inputs.enable_nomount == true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo ">>> Fetching NoMount metamodule for pinned commit ${NOMOUNT_COMMIT}..."
-          mkdir -p nomount_extracted
-          
-          # 1. Query GitHub API for the specific commit's action run
-          RUNS_JSON=$(curl -s -H "Authorization: token $GH_TOKEN" \
-            "https://api.github.com/repos/maxsteeel/nomount/actions/runs?head_sha=${NOMOUNT_COMMIT}&status=success")
-          
-          RUN_ID=$(echo "$RUNS_JSON" | jq -r '.workflow_runs[0].id // empty')
-          
-          if [ -z "$RUN_ID" ]; then
-            echo "[-] Error: Could not find a successful Action run for commit $NOMOUNT_COMMIT."
-            exit 1
-          fi
-          
-          echo "  -> Found successful Run ID: $RUN_ID"
-          
-          # 2. Locate the specific NoMount artifact download URL
-          ARTIFACTS_JSON=$(curl -s -H "Authorization: token $GH_TOKEN" \
-            "https://api.github.com/repos/maxsteeel/nomount/actions/runs/${RUN_ID}/artifacts")
-          
-          DOWNLOAD_URL=$(echo "$ARTIFACTS_JSON" | jq -r '.artifacts[] | select(.name | startswith("NoMount-")) | .archive_download_url' | head -n 1)
-          
-          if [ -n "$DOWNLOAD_URL" ]; then
-            echo "  -> Downloading Artifact from: $DOWNLOAD_URL"
-            curl -sL -H "Authorization: token $GH_TOKEN" -o temp_module.zip "$DOWNLOAD_URL"
-            
-            echo "  -> Extracting module..."
-            unzip -q temp_module.zip -d nomount_extracted/
-            rm temp_module.zip
-            echo "  -> Success! Extracted contents:"
-            ls -la nomount_extracted/
-          else
-            echo "[-] Failed to find NoMount artifact zip in run $RUN_ID."
-            exit 1
-          fi
-        shell: bash
-
-      - name: Upload NoMount Module
-        if: inputs.enable_nomount == true
-        uses: actions/upload-artifact@v4
-        with:
-          name: NoMount-KSU-Module
-          path: nomount_extracted/
-          if-no-files-found: warn
-
       - name: Upload Manager APK
         if: inputs.root_manager != 'Stock' && inputs.enable_ksu_susfs == true
         uses: actions/upload-artifact@v4

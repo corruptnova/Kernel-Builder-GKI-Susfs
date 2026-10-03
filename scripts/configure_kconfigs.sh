@@ -2,7 +2,6 @@
 # scripts/configure_kconfigs.sh
 set -euo pipefail
 
-ENABLE_NOMOUNT=${ENABLE_NOMOUNT:-false}
 ENABLE_NET_OPTS=${ENABLE_NET_OPTS:-false}
 BASE_VER=${BASE_VER:-}
 
@@ -10,13 +9,6 @@ COMBINED_FRAG="$(pwd)/tools/custom_combined.fragment"
 > "$COMBINED_FRAG" # Initialize empty file
 
 echo "=== Configuring Kconfigs & ABI Neutralization for Kernel $BASE_VER ==="
-
-# 0. GUARD: built-in NoMount and user-supplied Prism engine both define CONFIG_NOMOUNT
-if [ "$ENABLE_NOMOUNT" = "true" ] && [ -f "tools/user_source/fs/nomount.c" ]; then
-    echo "[-] ERROR: Prism NoMount engine found in tools/user_source/fs/ but the built-in NoMount toggle is enabled."
-    echo "    Untick 'Inject nomount VFS module'; the Prism engine is enabled via tools/custom.fragment."
-    exit 1
-fi
 
 cd kernel_workspace
 
@@ -51,12 +43,6 @@ cd common
     esac
     
     # 3. DYNAMIC FRAGMENT ASSEMBLY
-    if [ "$ENABLE_NOMOUNT" = "true" ] && [ -f "../../tools/nomount.fragment" ]; then
-        echo ">>> Appending NoMount Kconfigs..."
-        cat "../../tools/nomount.fragment" >> "$COMBINED_FRAG"
-        echo "" >> "$COMBINED_FRAG"
-    fi
-
     if [ "$ENABLE_NET_OPTS" = "true" ] && [ -f "../../tools/net_opts.fragment" ]; then
         echo ">>> Appending Network Optimization Kconfigs..."
         cat "../../tools/net_opts.fragment" >> "$COMBINED_FRAG"
@@ -72,12 +58,6 @@ cd common
     # 4. INTEGRATE COMBINED KCONFIG FRAGMENT
     if [ -s "$COMBINED_FRAG" ]; then
         
-        if [ "$ENABLE_NOMOUNT" = "true" ]; then
-            echo ">>> Dynamically wiring NoMount hooks into VFS tree..."
-            grep -q "nomount" fs/Makefile || echo 'obj-$(CONFIG_NOMOUNT)		+= nomount/' >> fs/Makefile
-            grep -q "nomount" fs/Kconfig || echo 'source "fs/nomount/Kconfig"' >> fs/Kconfig
-        fi
-
         case "$BASE_VER" in
             5.10)
                 echo ">>> Injecting Legacy 5.10 Kconfig Fragment..."

@@ -2,7 +2,6 @@
 # scripts/build_kernel.sh
 set -euo pipefail
 
-ENABLE_NOMOUNT=${ENABLE_NOMOUNT:-false}
 ENABLE_NET_OPTS=${ENABLE_NET_OPTS:-false}
 BASE_VER=${BASE_VER:-}
 

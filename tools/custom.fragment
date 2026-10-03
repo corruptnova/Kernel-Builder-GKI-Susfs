@@ -1,10 +1,8 @@
 # tools/custom.fragment
 # User Kconfig overrides. Applied on every build (including Stock) by
-# scripts/configure_kconfigs.sh, independently of the NoMount / net_opts toggles.
+# scripts/configure_kconfigs.sh, independently of the net_opts toggle.
 
 # --- PRISM NOMOUNT ENGINE (NoMount-Suite hookless/, see tools/prism_engine.lock) ---
 # Source: tools/user_source/fs/nomount.[ch]
 # Wiring: tools/user_patches/prism-nomount_kernel_integration.patch
-# Leave the workflow's "Inject nomount VFS module" toggle OFF; it is the
-# builder's own maxsteeel NoMount and conflicts with this engine.
 CONFIG_NOMOUNT=y
