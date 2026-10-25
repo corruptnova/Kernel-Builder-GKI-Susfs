@@ -44,6 +44,30 @@ if [ "${ROOT_MANAGER:-}" = "SukiSU-Ultra" ]; then
     fi
 fi
 
+# 1.6. ReSukiSU (frozen legacy branch): Route 50_ patch hooks the source does not export
+# The legacy tree compiles out its own selinux_hide write/setprocattr handlers when it sees the
+# SuSFS hook, and predates preinit entirely, so these calls would otherwise fail to link.
+if [ "${ROOT_MANAGER:-}" = "ReSukiSU" ]; then
+    KSU_SRC="common/drivers/kernelsu"
+    echo ">>> ReSukiSU detected via ROOT_MANAGER. Checking for missing 50_ patch symbols..."
+
+    if ! grep -qE '__maybe_static ssize_t my_write_context' "$KSU_SRC/feature/selinux_hide.c" 2>/dev/null; then
+        echo "  -> selinux_hide exports missing. Routing to stock SELinux handlers..."
+        if [ -f "common/security/selinux/selinuxfs.c" ]; then
+            sed -i 's/return my_write_context/return sel_write_context/g' common/security/selinux/selinuxfs.c
+            sed -i 's/return my_write_access/return sel_write_access/g' common/security/selinux/selinuxfs.c
+        fi
+        if [ -f "common/security/selinux/hooks.c" ]; then
+            sed -i 's/return my_setprocattr/return selinux_setprocattr/g' common/security/selinux/hooks.c
+        fi
+    fi
+
+    if [ ! -f "$KSU_SRC/preinit/preinit.c" ] && [ -f "common/fs/exec.c" ] && ! grep -q 'KSU_NO_PREINIT 1' common/fs/exec.c; then
+        echo "  -> No preinit support in source. Disabling 50_ patch preinit calls in exec.c..."
+        sed -i '1i #define KSU_NO_PREINIT 1' common/fs/exec.c
+    fi
+fi
+
 # 2. Kernel 6.6+: Fix mm/rmap.c Redundant SuSFS Backport
 if [ -f "common/mm/rmap.c.rej" ]; then
     echo ">>> Found rmap.c.rej. Analyzing kernel version compatibility..."
