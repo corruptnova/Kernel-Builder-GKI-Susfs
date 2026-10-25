@@ -7,10 +7,11 @@ on:
         description: 'Build Channel'
         required: false
         type: choice
-        options:
+        options: 
           - stable
-          - dynamic
-
+          - dynamic 
+          - main
+          
       build_name:
         description: "Build Name"
         required: true
@@ -28,12 +29,13 @@ on:
         options:
           - KernelSU-Next
           - SukiSU-Ultra
+          - BakaSU
           - ReSukiSU
           - KernelSU
           - Stock
 
       enable_ksu_susfs:
-        description: "Integrate Root Manager and SUSFS?"
+        description: "Integrate Root Manager and SUSFS? (Select main channel for kernel root without susfs)"
         required: false
         type: boolean
         default: true
@@ -43,7 +45,7 @@ on:
         required: false
         type: boolean
         default: false
-        
+
       ota_url:
         description: "Full OTA ZIP URL (blank produces AK3 zip)"
         required: false
@@ -76,8 +78,8 @@ jobs:
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@main
         with:
-          tool-cache: true
-          android: true
+          preinstalled-runtimes: true
+          android: false
           dotnet: true
           haskell: false
           large-packages: false
@@ -178,34 +180,46 @@ jobs:
         run: |
           echo "=== Configuring Build Channel: ${{ inputs.build_channel }} ==="
 
-          # 1. Define global upstream quirks based on the selected variant
+          # 1. Define global upstream quirks based on the selected variant using local variables
           case "${{ inputs.root_manager }}" in
             "KernelSU-Next")
-              echo "UPSTREAM_REPO=KernelSU-Next/KernelSU-Next" >> $GITHUB_ENV
-              echo "TARGET_BRANCH=dev" >> $GITHUB_ENV
-              echo "WORKFLOW_FILE=build-manager-ci.yml" >> $GITHUB_ENV
+              U_REPO="KernelSU-Next/KernelSU-Next"
+              T_BRANCH="dev"
+              W_FILE="build-manager-ci.yml"
               ;;
             "SukiSU-Ultra")
-              echo "UPSTREAM_REPO=SukiSU-Ultra/SukiSU-Ultra" >> $GITHUB_ENV
-              echo "TARGET_BRANCH=main" >> $GITHUB_ENV
-              echo "WORKFLOW_FILE=build-manager.yml" >> $GITHUB_ENV
+              U_REPO="SukiSU-Ultra/SukiSU-Ultra"
+              T_BRANCH="main"
+              W_FILE="build-manager.yml"
+              ;;
+            "BakaSU")
+              U_REPO="Baka-SU/BakaSU"
+              T_BRANCH="main"
+              W_FILE="build-manager.yml"
               ;;
             "ReSukiSU")
-              echo "UPSTREAM_REPO=ReSukiSU/ReSukiSU" >> $GITHUB_ENV
-              echo "TARGET_BRANCH=main" >> $GITHUB_ENV
-              echo "WORKFLOW_FILE=build-manager.yml" >> $GITHUB_ENV
+              U_REPO="ReSukiSU/ReSukiSU"
+              T_BRANCH="main"
+              W_FILE="build-manager.yml"
               ;;
             "KernelSU"|*)
-              echo "UPSTREAM_REPO=tiann/KernelSU" >> $GITHUB_ENV
-              echo "TARGET_BRANCH=main" >> $GITHUB_ENV
-              echo "WORKFLOW_FILE=build-manager.yml" >> $GITHUB_ENV
+              U_REPO="tiann/KernelSU"
+              T_BRANCH="main"
+              W_FILE="build-manager.yml"
               ;;
           esac
+
+          # Export global variables to the runner environment for subsequent steps
+          echo "UPSTREAM_REPO=$U_REPO" >> $GITHUB_ENV
+          echo "TARGET_BRANCH=$T_BRANCH" >> $GITHUB_ENV
+          echo "WORKFLOW_FILE=$W_FILE" >> $GITHUB_ENV
 
           # 2. Route the variant to the appropriate build engine
           if [ "${{ inputs.build_channel }}" == "dynamic" ]; then
             echo ">>> Routing ${{ inputs.root_manager }} to Automated Dynamic Transplant..."
             echo "USE_DYNAMIC_TRANSPLANT=true" >> $GITHUB_ENV
+            echo "KSU_VARIANT_REPO_URL=https://github.com/$U_REPO.git" >> $GITHUB_ENV
+            echo "KSU_VARIANT_REF=$T_BRANCH" >> $GITHUB_ENV
             echo "SUSFS_REPO_URL=https://gitlab.com/simonpunk/susfs4ksu.git" >> $GITHUB_ENV
           else
             echo ">>> Routing ${{ inputs.root_manager }} to Safe Fallback Fork (Stable branch)..."
@@ -285,7 +299,7 @@ jobs:
           bash ./scripts/inject_ksu_variant.sh "${{ inputs.root_manager }}"
 
       - name: Integrate SUSFS common-side
-        if: inputs.root_manager != 'Stock' && inputs.enable_ksu_susfs == true
+        if: inputs.root_manager != 'Stock' && inputs.enable_ksu_susfs == true && inputs.build_channel != 'main'
         env:
           SUSFS_NEXT_URL: ${{ env.SUSFS_REPO_URL }}
           SUSFS_NEXT_REF: ${{ env.SUSFS_BRANCH }}
@@ -293,7 +307,7 @@ jobs:
           bash ./scripts/integrate_susfs.sh
 
       - name: Fix SUSFS Patch Rejections
-        if: inputs.root_manager != 'Stock' && inputs.enable_ksu_susfs == true
+        if: inputs.root_manager != 'Stock' && inputs.enable_ksu_susfs == true && inputs.build_channel != 'main'
         run: |
           bash ./scripts/fix_susfs_rejections.sh
 

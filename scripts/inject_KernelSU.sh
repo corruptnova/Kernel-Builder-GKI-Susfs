@@ -3,23 +3,29 @@
 
 echo ">>> Executing Integration Module for standard KernelSU..."
 
+# 1. Universally clone the target branch handed down by the YAML
+echo ">>> 1. Cloning target branch (${KSU_VARIANT_REF}) from ${KSU_VARIANT_REPO_URL}..."
+git clone -b "${KSU_VARIANT_REF}" "${KSU_VARIANT_REPO_URL}" "${MANAGER_DIR}"
+
+ln -sfn "../${MANAGER_DIR}" "common/${MANAGER_DIR}"
+cd common
+bash "${MANAGER_DIR}/kernel/setup.sh" "${KSU_VARIANT_REF}"
+cd ..
+
+cd "${MANAGER_DIR}"
+
 if [ "${USE_DYNAMIC_TRANSPLANT}" == "true" ]; then
-    echo ">>> 1. Cloning pristine official KernelSU upstream..."
-    git clone "https://github.com/${UPSTREAM_REPO}.git" "${MANAGER_DIR}"
+    echo ">>> [DYNAMIC] Executing Automated Dynamic Transplant for KernelSU..."
     
-    ln -sfn "../${MANAGER_DIR}" "common/${MANAGER_DIR}"
-    cd common
-    bash "${MANAGER_DIR}/kernel/setup.sh" "${TARGET_BRANCH}"
-    cd ..
-    
-    cd "${MANAGER_DIR}"
+    # In dynamic, HEAD is already pristine upstream. Grab the hash!
     UPSTREAM_HASH=$(git log -n 1 --format="%H" -i --grep="ci skip" --grep="skip ci" --grep="clippy" --invert-grep -- manager/ kernel/ userspace/ .github/workflows/ ":!*Cargo.lock" ":!*Cargo.toml")
     CALCULATED_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-    CALCULATED_COUNT=$(git rev-list --count "${UPSTREAM_HASH}")
-    UPSTREAM_BRANCH="main"
+    CALCULATED_COUNT=$(git rev-list --count "${UPSTREAM_HASH}" 2>/dev/null || echo "11950")
+    
+    UPSTREAM_BRANCH="${TARGET_BRANCH}"
 
     echo ">>> 2. Fetching Simonpunk's dynamic 10_enable_susfs_for_ksu patch..."
-    PATCH_URL="https://gitlab.com/simonpunk/susfs4ksu/-/raw/${SUSFS_BRANCH}/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
+    PATCH_URL="https://gitlab.com/simonpunk/susfs4ksu/-/raw/gki-android15-6.6-dev/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
 
     if wget -qO 10_enable_susfs_for_ksu.patch "$PATCH_URL"; then
         echo ">>> 3. Applying SuSFS patch dynamically..."
@@ -53,40 +59,26 @@ EOF
         echo "[-] CRITICAL: Failed to download the SuSFS patch."
         exit 1
     fi
-    cd ..  
 else
-    echo ">>> Safe fallback channel detected. Cloning custom pipeline branch..."
-    git clone -b "${KSU_VARIANT_REF}" "${KSU_VARIANT_REPO_URL}" "${MANAGER_DIR}"
+    echo ">>> [STABLE] Safe fallback channel detected. Bypassing dynamic patching..."
     
-    ln -sfn "../${MANAGER_DIR}" "common/${MANAGER_DIR}"
-    cd common
-    # FIX 1: Pass the dynamic reference instead of hardcoded 'main'
-    bash "${MANAGER_DIR}/kernel/setup.sh" "${KSU_VARIANT_REF}"
-    cd ..
-    
-    # FIX 2: Lock the upstream tracking variable to the dynamic branch
     UPSTREAM_BRANCH="${KSU_VARIANT_REF}"
     
-    cd "${MANAGER_DIR}"
-    
-    # FIX 3: Fetch official upstream and calculate the pristine Merge-Base
-    OFFICIAL_REPO_URL="https://github.com/tiann/KernelSU.git"
-    echo ">>> Locating official upstream sync point for tiann/KernelSU..."
-    
-    # We fetch 'main' from the official repo because that is their core tracking branch
-    git fetch --quiet "${OFFICIAL_REPO_URL}" main
+    echo ">>> Locating official upstream sync point for ${UPSTREAM_REPO}..."
+    # Guarantee safe tag math with --tags --force
+    git fetch --quiet --tags --force "https://github.com/${UPSTREAM_REPO}.git" "${TARGET_BRANCH}"
     RAW_BASE=$(git merge-base HEAD FETCH_HEAD)
     
-    # FIX 4: Walk backward down the pristine mainline branch
     set +o pipefail
     UPSTREAM_HASH=$(git log -n 1 --first-parent "${RAW_BASE}" --format="%H" -i --grep="ci skip" --grep="skip ci" --grep="clippy" --invert-grep -- manager/ kernel/ userspace/ .github/workflows/ ":!*Cargo.lock" ":!*Cargo.toml")
     set -o pipefail
 
     CALCULATED_COUNT=$(git rev-list --count "${UPSTREAM_HASH}" 2>/dev/null || echo "11950")
     CALCULATED_TAG=$(git describe --tags --abbrev=0 "${UPSTREAM_HASH}" 2>/dev/null || echo "v0.0.0")
-    
-    cd ..
 fi
+
+# Exit the MANAGER_DIR universally
+cd ..
 
 echo "  -> Target Tag: $CALCULATED_TAG"
 echo "  -> Target Hash: $UPSTREAM_HASH"
