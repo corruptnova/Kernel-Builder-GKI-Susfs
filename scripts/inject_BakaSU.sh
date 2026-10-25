@@ -68,13 +68,23 @@ fi
 # SELinux Hide LTO and Kernel Compat Patches
 SELINUX_HIDE_FILE="${MANAGER_DIR}/kernel/feature/selinux_hide.c"
 if [ -f "$SELINUX_HIDE_FILE" ]; then
-    
-    # 1. Force compile manual hooks to satisfy 50_patch linker requirements
-    echo ">>> [HOTFIX] Exposing BakaSU static symbols for hooks.c linker..."
-    sed -i 's|#include "compat/kernel_compat.h"|#include "compat/kernel_compat.h"\n\n/* Force compile manual hooks */\n#undef KSU_COMPAT_HAS_SUSFS_FEATURE_SELINUX_HIDE|g' "$SELINUX_HIDE_FILE"
 
-    sed -i 's/static ssize_t my_write_context/ssize_t my_write_context/g' "$SELINUX_HIDE_FILE"
-    sed -i 's/static ssize_t my_write_access/ssize_t my_write_access/g' "$SELINUX_HIDE_FILE"
+    # Newer BakaSU exports the 50_patch SELinux symbols itself (my_* behind __maybe_static,
+    # setprocattr renamed to my_setprocattr) and ships preinit, so the polyfills below must stay off.
+    BAKASU_NATIVE_SUSFS=false
+    if grep -q '__maybe_static ssize_t my_write_context' "$SELINUX_HIDE_FILE" && [ -f "${MANAGER_DIR}/kernel/preinit/preinit.c" ]; then
+        BAKASU_NATIVE_SUSFS=true
+        echo ">>> BakaSU exports the 50_patch symbols natively. Skipping SELinux hook polyfills..."
+    fi
+
+    # 1. Force compile manual hooks to satisfy 50_patch linker requirements
+    if [ "$BAKASU_NATIVE_SUSFS" = "false" ]; then
+        echo ">>> [HOTFIX] Exposing BakaSU static symbols for hooks.c linker..."
+        sed -i 's|#include "compat/kernel_compat.h"|#include "compat/kernel_compat.h"\n\n/* Force compile manual hooks */\n#undef KSU_COMPAT_HAS_SUSFS_FEATURE_SELINUX_HIDE|g' "$SELINUX_HIDE_FILE"
+
+        sed -i -E 's/(^|[^_[:alnum:]])static ssize_t my_write_context/\1ssize_t my_write_context/g' "$SELINUX_HIDE_FILE"
+        sed -i -E 's/(^|[^_[:alnum:]])static ssize_t my_write_access/\1ssize_t my_write_access/g' "$SELINUX_HIDE_FILE"
+    fi
 
     # 2. Non-void return fix for legacy kernels < 6.6
     K_VER=$(grep "^VERSION =" common/Makefile | tr -d ' ' | cut -d'=' -f2 || echo "0")
@@ -88,7 +98,27 @@ if [ -f "$SELINUX_HIDE_FILE" ]; then
     fi
     
     # 3. Polyfill 50_patch Linker Stubs (my_setprocattr & Preinit)
-    if ! grep -q "ksu_setup_preinit_file" "$SELINUX_HIDE_FILE"; then
+    if [ "$BAKASU_NATIVE_SUSFS" = "true" ] && ! grep -q "ksu_setup_preinit_file" "$SELINUX_HIDE_FILE"; then
+        # preinit.o is only built when the UAPI headers are reachable, so keep weak fallbacks
+        # that its strong definitions override whenever it is built.
+        echo ">>> [HOTFIX] Injecting weak preinit fallbacks for 50_patch exec.c..."
+        cat << 'EOF' >> "$SELINUX_HIDE_FILE"
+
+/* BakaSU 50_patch Preinit Fallbacks (overridden by preinit/preinit.c when built) */
+struct filename;
+struct user_arg_ptr;
+
+__attribute__((weak)) int ksu_setup_preinit_file(struct filename **filename_ptr, struct user_arg_ptr *argv_user) {
+    return 0;
+}
+
+__attribute__((weak)) int ksu_preinit_handle_post_execveat(int *fd, struct filename **filename_ptr,
+                void *argv_user, void *envp_user,
+                int *flags, int *retval, int *preinit_fd) {
+    return 0;
+}
+EOF
+    elif ! grep -q "ksu_setup_preinit_file" "$SELINUX_HIDE_FILE"; then
         echo ">>> [HOTFIX] Injecting safe C stubs to bypass preinit linker panics..."
         cat << 'EOF' >> "$SELINUX_HIDE_FILE"
 
